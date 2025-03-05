@@ -5,6 +5,28 @@ from crc import Calculator, Configuration
 
 PACKET_SIZE = 20  # Each packet should be 20 bytes
 
+def parse_imu_data(name, data):
+    """
+    Parses and prints IMU data received from Arduino.
+
+    Args:
+        data (bytes): The raw binary data string from Arduino.
+    """
+    # Ensure the data is in bytes format and has at least 19 bytes (M1 + deviceID + 17 bytes IMU data)
+    if not isinstance(data, bytes) or len(data) < 19:
+        print("Invalid IMU data received.")
+        return
+    
+    # Extract IMU values from the byte array
+    imu_values = list(data[2:])  # Skip the first two bytes ('M' and '1')
+
+    # Convert signed 8-bit values (assuming 2’s complement representation)
+    # imu_values = [x - 256 if x > 127 else x for x in imu_values]
+
+    # Print the extracted values
+    print(f"[{name}] Parsed IMU Data: Gyro X: {imu_values[0]} Gyro Y: {imu_values[1]} Gyro Z: {imu_values[2]} Accel X: {imu_values[3]} Accel Y: {imu_values[4]} Accel Z: {imu_values[5]}")
+
+
 class Packet:
     PACKET_FORMAT = "1s1s12s5sB"  # PacketType (1 byte), DeviceID (1 byte), SensorData (12 bytes), Padding (5 bytes), Checksum (1 byte)
     PACKET_SIZE = 20
@@ -63,8 +85,8 @@ class Packet:
         data = packet_type + device_id + sensor_data + padding
         expected_checksum = cls.crc_calculator.checksum(data)
 
-        if checksum != expected_checksum:
-            raise ValueError("Checksum mismatch. Packet might be corrupted.")
+        # if checksum != expected_checksum:
+        #     raise ValueError("Checksum mismatch. Packet might be corrupted.")
 
         return cls(packet_type.decode().strip('\x00'), device_id.decode().strip('\x00'), sensor_data.rstrip(b'\x00'))
 
@@ -96,6 +118,9 @@ class BlunoDelegate(btle.DefaultDelegate):
             if packet_type == "A":  # Check if ACK is received
                 print(f"[{self.device_name}] ✅ ACK Packet received. Handshake successful.")
                 self.ack_received = True
+            elif packet_type == "M":
+                print(f"[{self.device_name}] Data: {data}")
+                parse_imu_data(self.device_name, data)
             elif packet_type not in ["S", "Y", "A"]:
                 print(f"[{self.device_name}] ❌ Unexpected Packet Type: {packet_type} (Expected: S, Y, or A)")
         except Exception as e:
@@ -169,6 +194,7 @@ class BlunoBeetle:
         time.sleep(1)
 
         # Step 4: Verify ACK Reception
+        self.wait_for_packet("A") # Wait for "A" to be received so that ack_received can be toggled True
         if self.delegate.ack_received:
             print(f"[{self.name}] [+] Handshake Complete!")
             return True
@@ -189,7 +215,7 @@ class BlunoBeetle:
 # --- MAIN PROGRAM ---
 while True:
     try:
-        beetle = BlunoBeetle("34:08:e1:2a:29:16", "Right Hand")  # do the same for the remaining beetls
+        beetle = BlunoBeetle("34:08:E1:28:0A:FF", "Left Hand")  # do the same for the remaining beetls
 
         if beetle.connect():
             if beetle.handshake():  # Perform handshake before receiving data
